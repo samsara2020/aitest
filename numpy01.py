@@ -1,4 +1,5 @@
 import numpy as np
+import time
 
 class SimpleNeuralNetwork:
     def __init__(self, input_size, hidden_size, output_size):
@@ -6,10 +7,21 @@ class SimpleNeuralNetwork:
         1. 初始化网络参数
         权重用小的随机数初始化，偏置初始化为0。
         """
+        # 设置固定随机种子以确保结果可重复
+        np.random.seed(42)
+        
         self.W1 = np.random.randn(input_size, hidden_size) * 0.01
         self.b1 = np.zeros((1, hidden_size))
         self.W2 = np.random.randn(hidden_size, output_size) * 0.01
         self.b2 = np.zeros((1, output_size))
+
+        # 打印四个网络参数
+        print("初始化参数:")
+        print("W1=", self.W1)
+        print("b1=", self.b1)
+        print("W2=", self.W2)
+        print("b2=", self.b2)
+        
     
     def sigmoid(self, x):
         """2. 定义激活函数"""
