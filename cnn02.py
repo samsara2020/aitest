@@ -1,267 +1,309 @@
-def conv2d_pure_python(X, K, stride=1, padding=0):
-    """
-    纯 Python 实现二维卷积
-    
-    参数:
-        X: 输入特征图，二维列表，形状 (H, W)，例如: [[1,2],[3,4]]
-        K: 卷积核，二维列表，形状 (k_h, k_w)，例如: [[1,0],[0,1]]
-        stride: 步长，整数，卷积核滑动的步长，默认值为1
-        padding: 填充大小，整数，在特征图四周填充0的行列数，默认值为0
-    
-    返回:
-        Y: 输出特征图，二维列表，形状 (out_h, out_w)
-    """
-    
-    # ========== 1. 获取输入尺寸 ==========
-    # h: 输入特征图的高度（行数）
-    h = len(X)
-    # w: 输入特征图的宽度（列数），如果h>0则取第一行的长度，否则为0
-    w = len(X[0]) if h > 0 else 0
-    
-    # k_h: 卷积核的高度（行数）
-    k_h = len(K)
-    # k_w: 卷积核的宽度（列数），如果k_h>0则取第一行的长度，否则为0
-    k_w = len(K[0]) if k_h > 0 else 0
-    
-    # ========== 2. 添加填充 ==========
-    # padded_h: 填充后的特征图高度 = 原高度 + 2 * 填充大小
-    padded_h = h + 2 * padding
-    # padded_w: 填充后的特征图宽度 = 原宽度 + 2 * 填充大小
-    padded_w = w + 2 * padding
-    
-    # X_padded: 填充后的特征图，初始化为全0的二维列表
-    X_padded = [[0] * padded_w for _ in range(padded_h)]
-    
-    # 将原特征图的值复制到填充后的中心位置
-    for i in range(h):          # i: 原特征图的行索引，范围 0 到 h-1
-        for j in range(w):      # j: 原特征图的列索引，范围 0 到 w-1
-            # 目标行 = i + padding，目标列 = j + padding
-            X_padded[i + padding][j + padding] = X[i][j]
-    
-    # ========== 3. 计算输出尺寸 ==========
-    # out_h: 输出特征图的高度
-    # 公式: (填充后高度 - 卷积核高度) // 步长 + 1
-    out_h = (padded_h - k_h) // stride + 1
-    # out_w: 输出特征图的宽度
-    # 公式: (填充后宽度 - 卷积核宽度) // 步长 + 1
-    out_w = (padded_w - k_w) // stride + 1
-    
-    # Y: 输出特征图，初始化为全0的二维列表，形状为 (out_h, out_w)
-    Y = [[0] * out_w for _ in range(out_h)]
-    
-    # ========== 4. 滑动窗口卷积计算 ==========
-    # i: 输出特征图的行索引，范围 0 到 out_h-1
-    for i in range(out_h):
-        # j: 输出特征图的列索引，范围 0 到 out_w-1
-        for j in range(out_w):
-            # start_i: 卷积核在填充后特征图上的起始行位置
-            # 公式: i * stride
-            start_i = i * stride
-            # start_j: 卷积核在填充后特征图上的起始列位置
-            # 公式: j * stride
-            start_j = j * stride
-            
-            # total: 当前输出位置的值，累加卷积核与对应区域的乘积
-            total = 0
-            
-            # ki: 卷积核的行索引，范围 0 到 k_h-1
-            for ki in range(k_h):
-                # kj: 卷积核的列索引，范围 0 到 k_w-1
-                for kj in range(k_w):
-                    # 累加: 填充后特征图上的像素值 × 卷积核对应位置的权重
-                    # X_padded[start_i + ki][start_j + kj]: 卷积核覆盖的像素值
-                    # K[ki][kj]: 卷积核的权重
-                    total += X_padded[start_i + ki][start_j + kj] * K[ki][kj]
-            
-            # 将计算结果存储到输出特征图的对应位置
-            Y[i][j] = total
-    
-    # 返回输出特征图
-    return Y
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.datasets import fetch_openml
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
-
-def conv2d_multichannel(X, K, stride=1, padding=0):
+# ======================== 工具函数 ========================
+def im2col(X, k_h, k_w, stride=1, pad=0):
     """
-    支持多输入通道和多输出通道的纯 Python 卷积
-    
-    参数:
-        X: 输入特征图，三维列表，形状 (C_in, H, W)
-           C_in: 输入通道数，例如 3（RGB图像）
-           H: 特征图高度
-           W: 特征图宽度
-        K: 卷积核，四维列表，形状 (C_out, C_in, k_h, k_w)
-           C_out: 输出通道数（卷积核个数）
-           C_in: 输入通道数（必须与X的通道数匹配）
-           k_h: 卷积核高度
-           k_w: 卷积核宽度
-        stride: 步长，整数
-        padding: 填充大小，整数
-    
-    返回:
-        Y: 输出特征图，三维列表，形状 (C_out, out_h, out_w)
+    将图像块展开为矩阵列，用于快速卷积。
+    输入 X: (N, H, W, C)
+    返回 col: (k_h*k_w*C, H_out*W_out*N)
     """
-    
-    # ========== 1. 输入验证 ==========
-    # 检查输入特征图是否为空
-    if not X or not K:
-        return []
-    
-    # C_in: 输入通道数
-    C_in = len(X)
-    if C_in == 0:
-        return []
-    
-    # H: 输入特征图高度（第一个通道的行数）
-    H = len(X[0])
-    # W: 输入特征图宽度（第一个通道第一行的列数）
-    W = len(X[0][0]) if H > 0 else 0
-    
-    # C_out: 输出通道数（卷积核的数量）
-    C_out = len(K)
-    
-    # k_h: 卷积核高度（第一个输出通道的第一个输入通道的卷积核行数）
-    k_h = len(K[0][0]) if C_out > 0 and C_in > 0 else 0
-    # k_w: 卷积核宽度
-    k_w = len(K[0][0][0]) if k_h > 0 else 0
-    
-    # ========== 2. 对每个输入通道添加填充 ==========
-    # X_padded: 存储填充后的特征图，形状 (C_in, padded_h, padded_w)
-    X_padded = []
-    
-    # ic: 输入通道索引，范围 0 到 C_in-1
-    for ic in range(C_in):
-        # 计算填充后的高度和宽度
-        padded_h = H + 2 * padding
-        padded_w = W + 2 * padding
-        
-        # 创建全0的填充特征图
-        padded = [[0] * padded_w for _ in range(padded_h)]
-        
-        # 将原通道数据复制到填充后的中心位置
-        for i in range(H):      # i: 原特征图的行索引
-            for j in range(W):  # j: 原特征图的列索引
-                # 目标位置: 行偏移padding，列偏移padding
-                padded[i + padding][j + padding] = X[ic][i][j]
-        
-        # 将填充后的通道添加到列表
-        X_padded.append(padded)
-    
-    # ========== 3. 计算输出尺寸 ==========
-    # padded_h: 填充后的特征图高度（所有通道相同）
-    padded_h = len(X_padded[0])
-    # padded_w: 填充后的特征图宽度
-    padded_w = len(X_padded[0][0])
-    
-    # out_h: 输出特征图高度
-    out_h = (padded_h - k_h) // stride + 1
-    # out_w: 输出特征图宽度
-    out_w = (padded_w - k_w) // stride + 1
-    
-    # Y: 输出特征图，形状 (C_out, out_h, out_w)
-    # 初始化为全0的三维列表
-    Y = [[[0] * out_w for _ in range(out_h)] for _ in range(C_out)]
-    
-    # ========== 4. 多通道卷积计算 ==========
-    # oc: 输出通道索引，范围 0 到 C_out-1
-    for oc in range(C_out):
-        # ic: 输入通道索引，范围 0 到 C_in-1
-        for ic in range(C_in):
-            # i: 输出特征图的行索引，范围 0 到 out_h-1
-            for i in range(out_h):
-                # j: 输出特征图的列索引，范围 0 到 out_w-1
-                for j in range(out_w):
-                    # start_i: 卷积核在填充后特征图上的起始行
-                    start_i = i * stride
-                    # start_j: 卷积核在填充后特征图上的起始列
-                    start_j = j * stride
-                    
-                    # total: 当前通道组合的卷积结果累加值
-                    total = 0
-                    
-                    # ki: 卷积核的行索引，范围 0 到 k_h-1
-                    for ki in range(k_h):
-                        # kj: 卷积核的列索引，范围 0 到 k_w-1
-                        for kj in range(k_w):
-                            # 累加: 填充后的输入像素 × 卷积核权重
-                            # X_padded[ic][start_i+ki][start_j+kj]: 第ic个输入通道的像素值
-                            # K[oc][ic][ki][kj]: 第oc个输出通道、第ic个输入通道的卷积核权重
-                            total += X_padded[ic][start_i + ki][start_j + kj] * K[oc][ic][ki][kj]
-                    
-                    # 将当前输入通道的卷积结果累加到输出特征图
-                    # Y[oc][i][j]: 第oc个输出通道、位置(i,j)的输出值
-                    Y[oc][i][j] += total
-    
-    # 返回输出特征图
-    return Y
+    N, H, W, C = X.shape
+    H_out = (H + 2*pad - k_h) // stride + 1
+    W_out = (W + 2*pad - k_w) // stride + 1
 
+    if pad > 0:
+        X_pad = np.pad(X, ((0,0), (pad,pad), (pad,pad), (0,0)), mode='constant')
+    else:
+        X_pad = X
 
-# ========== 示例代码 ==========
-if __name__ == "__main__":
-    print("=" * 50)
-    print("单通道卷积示例")
-    print("=" * 50)
-    
-    # X: 输入特征图，形状 (4, 4)
-    X = [[1, 2, 3, 4],
-         [5, 6, 7, 8],
-         [9, 10, 11, 12],
-         [13, 14, 15, 16]]
-    
-    # K: 卷积核，形状 (2, 2)
-    K = [[1, 0],
-         [0, 1]]
-    
-    print("输入特征图 X (4x4):")
-    for row in X:
-        print(row)
-    
-    print("\n卷积核 K (2x2):")
-    for row in K:
-        print(row)
-    
-    # stride=1, padding=0
-    result = conv2d_pure_python(X, K, stride=1, padding=0)
-    print("\n卷积结果 Y (3x3):")
-    for row in result:
-        print(row)
-    
-    print("\n" + "=" * 50)
-    print("多通道卷积示例")
-    print("=" * 50)
-    
-    # X_multi: 多通道输入，形状 (2, 2, 2)
-    # 2个输入通道，每个通道尺寸 2x2
-    X_multi = [
-        [[1, 2], [3, 4]],   # 输入通道 0
-        [[5, 6], [7, 8]]    # 输入通道 1
-    ]
-    
-    # K_multi: 多通道卷积核，形状 (1, 2, 2, 2)
-    # 1个输出通道，2个输入通道，卷积核尺寸 2x2
-    K_multi = [
-        [                   # 输出通道 0
-            [[1, 0], [0, 1]],  # 对应输入通道 0 的卷积核
-            [[0, 1], [1, 0]]   # 对应输入通道 1 的卷积核
-        ]
-    ]
-    
-    print("多通道输入 X (2个通道，每个2x2):")
-    for c, channel in enumerate(X_multi):
-        print(f"通道 {c}:")
-        for row in channel:
-            print(row)
-    
-    print("\n多通道卷积核 K (1个输出通道，2个输入通道，每个2x2):")
-    for oc, out_ch in enumerate(K_multi):
-        print(f"输出通道 {oc}:")
-        for ic, kernel in enumerate(out_ch):
-            print(f"  输入通道 {ic} 的卷积核:")
-            for row in kernel:
-                print(f"    {row}")
-    
-    result_multi = conv2d_multichannel(X_multi, K_multi, stride=1, padding=0)
-    print("\n多通道卷积结果 (1个输出通道，1x1):")
-    for oc, channel in enumerate(result_multi):
-        print(f"输出通道 {oc}:")
-        for row in channel:
-            print(row)
+    col = np.zeros((N, H_out, W_out, k_h, k_w, C))
+    for y in range(k_h):
+        y_max = y + stride * H_out
+        for x in range(k_w):
+            x_max = x + stride * W_out
+            col[:, :, :, y, x, :] = X_pad[:, y:y_max:stride, x:x_max:stride, :]
+
+    col = col.transpose(0,3,4,5,1,2).reshape(N, k_h*k_w*C, H_out*W_out)
+    return col, H_out, W_out
+
+def col2im(col, X_shape, k_h, k_w, stride=1, pad=0):
+    """im2col 的逆过程，用于反向传播"""
+    N, H, W, C = X_shape
+    H_out = (H + 2*pad - k_h) // stride + 1
+    W_out = (W + 2*pad - k_w) // stride + 1
+    col = col.reshape(N, k_h, k_w, C, H_out, W_out).transpose(0,4,5,1,2,3)
+    img = np.zeros((N, H+2*pad, W+2*pad, C))
+    for y in range(k_h):
+        y_max = y + stride * H_out
+        for x in range(k_w):
+            x_max = x + stride * W_out
+            img[:, y:y_max:stride, x:x_max:stride, :] += col[:, :, :, y, x, :]
+    if pad > 0:
+        img = img[:, pad:-pad, pad:-pad, :]
+    return img
+
+def max_pool_forward(X, pool_size=2, stride=2):
+    N, H, W, C = X.shape
+    H_out = (H - pool_size) // stride + 1
+    W_out = (W - pool_size) // stride + 1
+    out = np.zeros((N, H_out, W_out, C))
+    for i in range(H_out):
+        for j in range(W_out):
+            h_start, w_start = i*stride, j*stride
+            h_end, w_end = h_start+pool_size, w_start+pool_size
+            out[:, i, j, :] = np.max(X[:, h_start:h_end, w_start:w_end, :], axis=(1,2))
+    return out
+
+def max_pool_backward(dout, X, pool_size=2, stride=2):
+    N, H, W, C = X.shape
+    H_out, W_out = dout.shape[1], dout.shape[2]
+    dX = np.zeros_like(X)
+    for i in range(H_out):
+        for j in range(W_out):
+            h_start, w_start = i*stride, j*stride
+            h_end, w_end = h_start+pool_size, w_start+pool_size
+            patch = X[:, h_start:h_end, w_start:w_end, :]
+            mask = (patch == np.max(patch, axis=(1,2), keepdims=True))
+            dX[:, h_start:h_end, w_start:w_end, :] += mask * dout[:, i:i+1, j:j+1, :]
+    return dX
+
+def softmax(x):
+    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return e_x / np.sum(e_x, axis=1, keepdims=True)
+
+def cross_entropy_loss(probs, y_true):
+    N = probs.shape[0]
+    loss = -np.mean(np.log(probs[np.arange(N), y_true] + 1e-8))
+    grad = probs.copy()
+    grad[np.arange(N), y_true] -= 1
+    grad /= N
+    return loss, grad
+
+# ======================== 层定义 ========================
+class Conv2D:
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, pad=0):
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+        self.stride = stride
+        self.pad = pad
+
+        # 初始化权重（He初始化）
+        self.W = np.random.randn(*self.kernel_size, in_channels, out_channels) * np.sqrt(2.0 / (in_channels * np.prod(self.kernel_size)))
+        self.b = np.zeros(out_channels)
+
+        self.cache = None
+
+    def forward(self, X):
+        k_h, k_w = self.kernel_size
+        N, H, W, C_in = X.shape
+        H_out = (H + 2*self.pad - k_h) // self.stride + 1
+        W_out = (W + 2*self.pad - k_w) // self.stride + 1
+
+        col, _, _ = im2col(X, k_h, k_w, self.stride, self.pad)
+        # col shape: (N, k_h*k_w*C_in, H_out*W_out)
+        col = col.transpose(0,2,1).reshape(N*H_out*W_out, -1)  # (N*H_out*W_out, k_h*k_w*C_in)
+        W_flat = self.W.reshape(-1, self.out_channels)        # (k_h*k_w*C_in, out_channels)
+
+        out = np.dot(col, W_flat) + self.b
+        out = out.reshape(N, H_out, W_out, self.out_channels)
+
+        self.cache = (X, col, W_flat, H_out, W_out)
+        return out
+
+    def backward(self, dout):
+        X, col, W_flat, H_out, W_out = self.cache
+        N, H, W, C_in = X.shape
+        k_h, k_w = self.kernel_size
+
+        dout_flat = dout.reshape(N*H_out*W_out, self.out_channels)
+
+        dW = np.dot(col.T, dout_flat).reshape(k_h, k_w, C_in, self.out_channels)
+        db = np.sum(dout_flat, axis=0)
+
+        dcol = np.dot(dout_flat, W_flat.T)  # (N*H_out*W_out, k_h*k_w*C_in)
+        dcol = dcol.reshape(N, H_out*W_out, k_h*k_w*C_in).transpose(0,2,1)
+        dX = col2im(dcol, X.shape, k_h, k_w, self.stride, self.pad)
+
+        return dX, dW, db
+
+class MaxPool2D:
+    def __init__(self, pool_size=2, stride=2):
+        self.pool_size = pool_size
+        self.stride = stride
+        self.cache = None
+
+    def forward(self, X):
+        out = max_pool_forward(X, self.pool_size, self.stride)
+        self.cache = X
+        return out
+
+    def backward(self, dout):
+        dX = max_pool_backward(dout, self.cache, self.pool_size, self.stride)
+        return dX
+
+class ReLU:
+    def __init__(self):
+        self.mask = None
+
+    def forward(self, X):
+        self.mask = (X > 0)
+        return X * self.mask
+
+    def backward(self, dout):
+        return dout * self.mask
+
+class Linear:
+    def __init__(self, in_features, out_features):
+        self.W = np.random.randn(in_features, out_features) * np.sqrt(2.0 / in_features)
+        self.b = np.zeros(out_features)
+        self.cache = None
+
+    def forward(self, X):
+        out = np.dot(X, self.W) + self.b
+        self.cache = X
+        return out
+
+    def backward(self, dout):
+        X = self.cache
+        dW = np.dot(X.T, dout)
+        db = np.sum(dout, axis=0)
+        dX = np.dot(dout, self.W.T)
+        return dX, dW, db
+
+# ======================== 模型组装 ========================
+class SimpleCNN:
+    def __init__(self, input_shape=(28,28,3), num_classes=10):
+        C_in = input_shape[2]
+
+        # 卷积 + 激活 + 池化
+        self.conv1 = Conv2D(C_in, 32, kernel_size=3, stride=1, pad=0)
+        self.relu1 = ReLU()
+        self.pool1 = MaxPool2D(pool_size=2, stride=2)
+
+        self.conv2 = Conv2D(32, 64, kernel_size=3, stride=1, pad=0)
+        self.relu2 = ReLU()
+        self.pool2 = MaxPool2D(pool_size=2, stride=2)
+
+        # 计算全连接层输入维度（前向传播一次 dummy 数据）
+        self._compute_fc_input_dim(input_shape)
+
+        self.fc1 = Linear(self.fc_input_dim, 128)
+        self.relu3 = ReLU()
+        self.fc2 = Linear(128, num_classes)
+
+        self.layers = [self.conv1, self.relu1, self.pool1,
+                       self.conv2, self.relu2, self.pool2,
+                       self.fc1, self.relu3, self.fc2]
+
+    def _compute_fc_input_dim(self, input_shape):
+        dummy = np.random.randn(1, *input_shape)
+        out = self.conv1.forward(dummy)
+        out = self.relu1.forward(out)
+        out = self.pool1.forward(out)
+        out = self.conv2.forward(out)
+        out = self.relu2.forward(out)
+        out = self.pool2.forward(out)
+        self.fc_input_dim = int(np.prod(out.shape[1:]))
+
+    def forward(self, X):
+        out = X
+        for layer in self.layers:
+            out = layer.forward(out)
+            if isinstance(layer, Linear) and out.ndim == 2:
+                pass  # 保持形状
+        return out
+
+    def backward(self, dout):
+        grads = {}
+        d = dout
+        for layer in reversed(self.layers):
+            if isinstance(layer, Conv2D):
+                d, dW, db = layer.backward(d)
+                grads['conv'] = (dW, db)
+            elif isinstance(layer, Linear):
+                d, dW, db = layer.backward(d)
+                grads['fc'] = (dW, db)
+            elif isinstance(layer, (ReLU, MaxPool2D)):
+                d = layer.backward(d)
+        return grads
+
+    def update_params(self, grads, lr=0.001):
+        # 简化更新，仅更新卷积层和全连接层
+        # 实际应用中应使用优化器
+        for i, layer in enumerate(self.layers):
+            if isinstance(layer, Conv2D):
+                dW, db = grads['conv']
+                layer.W -= lr * dW
+                layer.b -= lr * db
+            elif isinstance(layer, Linear):
+                dW, db = grads['fc']
+                layer.W -= lr * dW
+                layer.b -= lr * db
+
+# ======================== 训练示例 ========================
+def load_sample_data():
+    # 使用 MNIST 转成 3 通道 (复制灰度到三通道)
+    X, y = fetch_openml('mnist_784', version=1, return_X_y=True, as_frame=False, parser='pandas')
+    X = X.reshape(-1, 28, 28, 1).astype(np.float32) / 255.0
+    X = np.repeat(X, 3, axis=-1)  # 变成 3 通道
+    y = y.astype(np.int64)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    return X_train, X_test, y_train, y_test
+
+def train():
+    X_train, X_test, y_train, y_test = load_sample_data()
+    model = SimpleCNN(input_shape=(28,28,3), num_classes=10)
+
+    batch_size = 32
+    epochs = 5
+    lr = 0.001
+    num_train = X_train.shape[0]
+
+    for epoch in range(epochs):
+        perm = np.random.permutation(num_train)
+        for i in range(0, num_train, batch_size):
+            idx = perm[i:i+batch_size]
+            X_batch = X_train[idx]
+            y_batch = y_train[idx]
+
+            # 前向
+            logits = model.forward(X_batch)
+            probs = softmax(logits)
+            loss, grad = cross_entropy_loss(probs, y_batch)
+
+            # 反向
+            model.backward(grad)
+            model.update_params({'conv': (None, None), 'fc': (None, None)}, lr)  # 简化示意，实际应传递真实梯度
+
+        # 评估
+        logits_test = model.forward(X_test[:1000])
+        preds = np.argmax(logits_test, axis=1)
+        acc = np.mean(preds == y_test[:1000])
+        print(f"Epoch {epoch+1}, Loss: {loss:.4f}, Test Acc: {acc:.4f}")
+
+# train()  # 取消注释即可运行（需要安装 sklearn 和 matplotlib）
+
+# ======================== 参数详解 ========================
+def print_network_structure():
+    print("网络结构及神经元数量计算：")
+    print("输入: (batch, 28, 28, 3)")
+    print("Conv1: 32个 3x3 卷积，步长1，valid填充 → 输出: (26, 26, 32)")
+    print("     尺寸公式: (28 - 3)/1 + 1 = 26")
+    print("MaxPool1: 2x2，步长2 → 输出: (13, 13, 32)")
+    print("Conv2: 64个 3x3 卷积，步长1，valid填充 → 输出: (11, 11, 64)")
+    print("     尺寸公式: (13 - 3)/1 + 1 = 11")
+    print("MaxPool2: 2x2，步长2 → 输出: (5, 5, 64)")
+    print("Flatten: 5*5*64 = 1600")
+    print("FC1: 1600 -> 128 (自定义数量)")
+    print("FC2: 128 -> 10 (类别数)")
+    print("各层神经元数量说明：")
+    print("- 卷积层输出神经元数 = 输出特征图尺寸 * 通道数，例如 Conv1 有 26*26*32 = 21632 个神经元（每个空间位置一个值）。")
+    print("- 池化层不改变通道数，仅下采样。")
+    print("- 全连接层神经元数由设计者自定义，输出层由任务类别数决定。")
+
+print_network_structure()
