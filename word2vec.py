@@ -21,6 +21,8 @@ word2idx = {word: i for i, word in enumerate(words)}
 idx2word = {i: word for i, word in enumerate(words)}
 
 print(f"词汇表: {words}")
+print(f"word2idx: {word2idx}")
+print(f"idx2word: {idx2word}")
 print(f"词汇表大小: {vocab_size}\n")
 
 # 生成 Skip-gram 训练样本 (中心词, 上下文词)
@@ -30,9 +32,12 @@ def create_training_data(sentences, window_size=2):
         sentence_words = sentence.lower().split()
         for i, center_word in enumerate(sentence_words):
             # 确定上下文范围
+            
             start = max(0, i - window_size)
             end = min(len(sentence_words), i + window_size + 1)
-            
+            temp = end -	start
+            print(f"i : {i}")
+            print(f"start - end : {temp}")
             for j in range(start, end):
                 if i != j: # 排除中心词自己
                     context_word = sentence_words[j]
@@ -41,6 +46,9 @@ def create_training_data(sentences, window_size=2):
 
 training_pairs = create_training_data(corpus_text, window_size=2)
 
+print(f"training_pairs len: {training_pairs.__len__()}")
+print(f"type(training_pairs[0]): {type(training_pairs[0])}")
+print(f"training_pairs: {training_pairs}")
 # ==========================================
 # 2. 模型参数初始化
 # ==========================================
