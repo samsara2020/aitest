@@ -66,10 +66,10 @@ W2 = np.random.rand(embedding_dim, vocab_size)
 # ==========================================
 # 3. 辅助函数 (Softmax)
 # ==========================================
-def softmax(x):
+def softmax(z):
     # 减去最大值以防止数值溢出
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum()
+    exp_z = np.exp(z - np.max(z))
+    return exp_z / exp_z.sum()
 
 # ==========================================
 # 4. 训练循环 (核心算法)
@@ -85,6 +85,7 @@ for epoch in range(epochs):
         # x 是 One-hot 向量，x @ W1 相当于取出 W1 中对应的那一行
         x = np.zeros(vocab_size)
         x[center_idx] = 1
+        # print(f"x: {x}")
         
         h = np.dot(x, W1)  # 隐藏层输出 (1 x Dim)
         
@@ -131,7 +132,10 @@ for epoch in range(epochs):
 # ==========================================
 # 5. 结果展示
 # ==========================================
+print(f"W1: {W1}")
+print(f"W2: {W2}")
 print("\n训练完成！\n")
+
 
 # 通常我们取 W1 作为最终的词向量 (或者 W1+W2.T 的平均)
 final_embeddings = W1
